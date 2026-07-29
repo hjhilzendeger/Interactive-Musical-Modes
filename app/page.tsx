@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 type Chord = { name: string; roman: string; notes: string[] };
 type ModeDef = {
@@ -113,10 +113,38 @@ export default function Home() {
   const [modeIndex, setModeIndex] = useState(0);
   const [tempo, setTempo] = useState(112);
   const [wave, setWave] = useState<OscillatorType>("triangle");
+  const [theme, setTheme] = useState<"light" | "dark">("light");
   const [playing, setPlaying] = useState("");
   const audioRef = useRef<AudioContext | null>(null);
   const timers = useRef<number[]>([]);
+  const preferencesLoaded = useRef(false);
   const data = useModeData(keyIndex, modeIndex);
+
+  useEffect(() => {
+    const loadPreferences = window.setTimeout(() => {
+      try {
+        const saved = JSON.parse(localStorage.getItem("mode-atlas-preferences") || "{}");
+        if (Number.isInteger(saved.keyIndex) && saved.keyIndex >= 0 && saved.keyIndex < KEYS.length) setKeyIndex(saved.keyIndex);
+        if (Number.isInteger(saved.modeIndex) && saved.modeIndex >= 0 && saved.modeIndex < MODES.length) setModeIndex(saved.modeIndex);
+        if (typeof saved.tempo === "number") setTempo(Math.min(170, Math.max(70, saved.tempo)));
+        if (["triangle", "sine", "square", "sawtooth"].includes(saved.wave)) setWave(saved.wave);
+        setTheme(saved.theme === "light" || saved.theme === "dark" ? saved.theme : window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+      } catch {
+        setTheme(window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+      }
+      preferencesLoaded.current = true;
+    }, 0);
+    return () => window.clearTimeout(loadPreferences);
+  }, []);
+
+  useEffect(() => {
+    if (!preferencesLoaded.current) return;
+    try {
+      localStorage.setItem("mode-atlas-preferences", JSON.stringify({ keyIndex, modeIndex, tempo, wave, theme }));
+    } catch {
+      // Preferences remain available for this session if browser storage is blocked.
+    }
+  }, [keyIndex, modeIndex, tempo, wave, theme]);
 
   const audio = () => {
     if (!audioRef.current) audioRef.current = new AudioContext();
@@ -177,16 +205,17 @@ export default function Home() {
   };
 
   return (
-    <main style={{ "--accent": data.mode.color, "--soft": data.mode.soft } as React.CSSProperties}>
+    <main data-theme={theme} style={{ "--accent": data.mode.color, "--soft": data.mode.soft } as React.CSSProperties}>
       <header className="topbar">
         <a className="brand" href="#top" aria-label="Mode Atlas home"><span>◒</span> MODE ATLAS</a>
         <div className="audio-controls">
-          <label>Tempo <input aria-label="Tempo" type="range" min="70" max="170" value={tempo} onChange={(e) => setTempo(Number(e.target.value))} /> <b>{tempo}</b></label>
+          <label title="Controls how quickly scales and chord progressions play.">Tempo <input aria-label="Tempo in beats per minute" type="range" min="70" max="170" value={tempo} onChange={(e) => setTempo(Number(e.target.value))} /> <b>{tempo}</b></label>
           <label>Tone
-            <select aria-label="Tone" value={wave} onChange={(e) => setWave(e.target.value as OscillatorType)}>
+            <select title="Changes the sound color without changing the notes." aria-label="Instrument tone" value={wave} onChange={(e) => setWave(e.target.value as OscillatorType)}>
               <option value="triangle">Warm</option><option value="sine">Pure</option><option value="square">Reed</option><option value="sawtooth">Bright</option>
             </select>
           </label>
+          <button className="theme-toggle" title="Switch between light and dark appearance." aria-label={`Switch to ${theme === "light" ? "dark" : "light"} mode`} onClick={() => setTheme(theme === "light" ? "dark" : "light")}>{theme === "light" ? "◐ Dark" : "◑ Light"}</button>
           <button className="stop" onClick={stop} disabled={!playing}>■ Stop</button>
         </div>
       </header>
@@ -201,13 +230,13 @@ export default function Home() {
       </section>
 
       <nav className="key-strip" aria-label="Choose parent major key">
-        <span>Parent key</span>
+        <span title="The major scale whose seven notes are rotated to create each mode.">Parent key</span>
         <div>{KEYS.map((key, i) => <button key={key.name} className={i === keyIndex ? "active" : ""} onClick={() => { stop(); setKeyIndex(i); }}>{key.name}</button>)}</div>
       </nav>
 
       <nav className="mode-strip" aria-label="Choose musical mode">
         {MODES.map((mode, i) => (
-          <button key={mode.name} className={i === modeIndex ? "active" : ""} onClick={() => { stop(); setModeIndex(i); }}>
+          <button title={`${mode.name}: ${mode.feel}`} key={mode.name} className={i === modeIndex ? "active" : ""} onClick={() => { stop(); setModeIndex(i); }}>
             <span>{mode.number}</span><b>{mode.name}</b><small>{["MAJOR", "MINOR ♮6", "MINOR ♭2", "MAJOR ♯4", "MAJOR ♭7", "MINOR ♭6", "DIMINISHED"][i]}</small>
           </button>
         ))}
@@ -222,7 +251,7 @@ export default function Home() {
         </div>
         <div className="facts">
           <div><span>HOME</span><button onClick={() => playChord(data.home)}><b>{data.home.name}</b><small>{data.home.notes.join(" · ")}</small><i>▶</i></button></div>
-          <div><span>FLAVOR NOTE</span><button onClick={() => playNote(data.flavorNote)}><b>{data.flavorNote}</b><small>{data.mode.flavorLabel}</small><i>♪</i></button></div>
+          <div><span title="The scale tone that most clearly distinguishes this mode.">FLAVOR NOTE ⓘ</span><button onClick={() => playNote(data.flavorNote)}><b>{data.flavorNote}</b><small>{data.mode.flavorLabel}</small><i>♪</i></button></div>
         </div>
       </section>
 
